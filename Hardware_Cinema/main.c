@@ -96,19 +96,22 @@ int SerialCommGetPkg(pkg_serial *p_pkg)
     return EOK;
 }
 
+int vrt_delay = 20;
+int hrz_delay = 20;
+
 void makeStep(stepper_motor_idx_t motor_idx)
 {
     if (motor_idx == STEPPER_MOTOR_HRZ)
     {
         palSetPad(GPIOC, 0);
-        chThdSleepMilliseconds(1);
+        chThdSleepMilliseconds(hrz_delay);
         palClearPad(GPIOC, 0);
-        chThdSleepMilliseconds(1);
+        chThdSleepMilliseconds(hrz_delay);
     } else if ( motor_idx == STEPPER_MOTOR_VRT ) {
         palSetPad(GPIOA, 3);
-        chThdSleepMilliseconds(1);
+        chThdSleepMilliseconds(vrt_delay);
         palClearPad(GPIOA, 3);
-        chThdSleepMilliseconds(1);
+        chThdSleepMilliseconds(vrt_delay);
     }
 }
 
