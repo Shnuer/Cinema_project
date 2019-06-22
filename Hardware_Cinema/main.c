@@ -4,28 +4,28 @@
 #include <chprintf.h>
 #include <errno.h>
 
-typedef enum
-{
-    STEPPER_MOTOR_HRZ = 1,
-    STEPPER_MOTOR_VRT = 2
-} stepper_motor_idx_t;
 
-typedef enum
-{
-    STEPPER_MOTOR_DIRECTION_RIGTH = 1,
-    STEPPER_MOTOR_DIRECTION_LEFT = 2
-} stepper_motor_dir_t;
+#define STEPPER_MOTOR_DIRECTION_RIGHT 1
+#define STEPPER_MOTOR_DIRECTION_LEFT 2
+
+#define STEPPER_MOTOR_DIRECTION_UP 1
+#define STEPPER_MOTOR_DIRECTION_DOWN 2
+
+#define STEPPER_MOTOR_HRZ 1
+#define STEPPER_MOTOR_VRT 2
+
+int8_t horizontal_delay_value = 0;
+int8_t vertical_delay_value = 0;
+
+
+
 
 #define EOK 0
 
 /*Controll setting*/
-typedef struct
-{
-    stepper_motor_idx_t motor_index;
-    stepper_motor_dir_t motor_direction;
 
-    uint16_t value_of_step;
-} motor_action_t;
+
+
 
 /*Serial setting*/
 static const SerialConfig sdcfg = {
@@ -39,11 +39,10 @@ SerialDriver *comm_dr = &SD3;
 
 typedef struct
 {
-    uint8_t motor_index;
-    uint8_t motor_direction;
+    int8_t hrz_motor_delay;
+    int8_t vrt_motor_delay;
 
-    uint16_t value_of_step;
-} pkg_serial;
+} pkg_serial_t;
 
 void StepperMotorInit(void)
 {
@@ -53,7 +52,7 @@ void StepperMotorInit(void)
     palSetPadMode(GPIOF, 3, PAL_MODE_OUTPUT_PUSHPULL); // Dir HRZ
 }
 
-void SerialCommInit()
+void SerialCommInit(void)
 {
     palSetPadMode(GPIOD, 8, PAL_MODE_ALTERNATE(7));
     palSetPadMode(GPIOD, 9, PAL_MODE_ALTERNATE(7));
@@ -64,7 +63,7 @@ void SerialCommInit()
     sdStart(comm_dr, &sdcfg);
 }
 
-int SerialCommGetPkg(pkg_serial *p_pkg)
+int SerialCommGetPkg(pkg_serial_t *p_pkg)
 {
     if (p_pkg == NULL)
         return EINVAL;
@@ -78,7 +77,7 @@ int SerialCommGetPkg(pkg_serial *p_pkg)
     char start_byte = msg;
     if (start_byte == '#')
     {
-        uint8_t rcv_buffer[4];
+        int8_t rcv_buffer[3];
         int32_t rcv_bytes = sizeof(rcv_buffer);
 
         msg = sdReadTimeout(comm_dr, rcv_buffer, rcv_bytes, MS2ST(10));
@@ -88,93 +87,138 @@ int SerialCommGetPkg(pkg_serial *p_pkg)
             return EIO;
         }
 
-        p_pkg->motor_index = rcv_buffer[0];
-        p_pkg->motor_direction = rcv_buffer[1];
-        p_pkg->value_of_step = (rcv_buffer[2] << 8) | (rcv_buffer[3]);
+        p_pkg->hrz_motor_delay = rcv_buffer[0];
+        p_pkg->vrt_motor_delay = rcv_buffer[1];
+        uint8_t pkg_chk = rcv_buffer[2];
+        uint8_t pkg_chk_calc = (int)(p_pkg->hrz_motor_delay * 2. + p_pkg->vrt_motor_delay * 1.5);
+
+        if(pkg_chk != pkg_chk_calc)
+        {
+            return EIO;
+        }
+  
     }
 
     return EOK;
 }
 
-int vrt_delay = 20;
-int hrz_delay = 20;
 
-void makeStep(stepper_motor_idx_t motor_idx)
+void hrz_direction(uint8_t direction_hrz)
 {
-    if (motor_idx == STEPPER_MOTOR_HRZ)
-    {
-        palSetPad(GPIOC, 0);
-        chThdSleepMilliseconds(hrz_delay);
-        palClearPad(GPIOC, 0);
-        chThdSleepMilliseconds(hrz_delay);
-    } else if ( motor_idx == STEPPER_MOTOR_VRT ) {
-        palSetPad(GPIOA, 3);
-        chThdSleepMilliseconds(vrt_delay);
-        palClearPad(GPIOA, 3);
-        chThdSleepMilliseconds(vrt_delay);
-    }
-}
-
-void makeNSteps(motor_action_t *action)
-{
-    for (int i = 0; i < action->value_of_step; ++i)
-    {
-        makeStep(action->motor_index);
-    }
-
-
-}
-
-void SetTheMotorValueHorizontally(motor_action_t *action)
-{
-    if (action->motor_direction == STEPPER_MOTOR_DIRECTION_RIGTH)
+    if(direction_hrz == STEPPER_MOTOR_DIRECTION_RIGHT)
     {
         palSetPad(GPIOF, 3);
     }
-    else if (action->motor_direction == STEPPER_MOTOR_DIRECTION_LEFT)
+    else if(direction_hrz == STEPPER_MOTOR_DIRECTION_LEFT)
     {
         palClearPad(GPIOF, 3);
     }
-
-    makeNSteps(action);
 }
 
-void SetTheMotorValueVertically(motor_action_t *action)
+
+
+void Make_hrz_step(uint8_t delay_hrz)
 {
-    if (action->motor_direction == STEPPER_MOTOR_DIRECTION_RIGTH)
+    palSetPad(GPIOC, 0);
+    chThdSleepMilliseconds(delay_hrz);
+    palClearPad(GPIOC, 0);
+    chThdSleepMilliseconds(delay_hrz);
+}
+
+
+void vrt_direction(uint8_t direction_vrt)
+{
+    if(direction_vrt == STEPPER_MOTOR_DIRECTION_UP)
     {
         palSetPad(GPIOC, 3);
     }
-    else if (action->motor_direction == STEPPER_MOTOR_DIRECTION_LEFT)
+    else if(direction_vrt == STEPPER_MOTOR_DIRECTION_DOWN)
     {
         palClearPad(GPIOC, 3);
     }
-
-    makeNSteps(action);
 }
 
-void UpdateStateMotor(motor_action_t *action)
+
+void Make_vrt_step(uint8_t delay_vrt)
 {
-    palToggleLine(LINE_LED1);
-
-    if (action->motor_index == STEPPER_MOTOR_HRZ)
-    {
-        SetTheMotorValueHorizontally(action);
-    }
-    else if (action->motor_index == STEPPER_MOTOR_VRT)
-    {
-        SetTheMotorValueVertically(action);
-    }
+        palSetPad(GPIOA, 3);
+        chThdSleepMilliseconds(delay_vrt);
+        palClearPad(GPIOA, 3);
+        chThdSleepMilliseconds(delay_vrt);
 }
 
-static THD_WORKING_AREA(waThread, 128);
-static THD_FUNCTION(Thread, arg)
+
+void Hrz_action(int8_t delay_hrz)
+{
+
+    if (delay_hrz>0)
+    {
+        hrz_direction(STEPPER_MOTOR_DIRECTION_RIGHT);
+    }
+    else
+    {   
+        hrz_direction(STEPPER_MOTOR_DIRECTION_LEFT);
+        delay_hrz = delay_hrz * (-1);
+    }
+
+    Make_hrz_step(delay_hrz);
+}
+
+
+void Vrt_action(int8_t delay_vrt)
+{
+
+    if (delay_vrt>0)
+    {
+        vrt_direction(STEPPER_MOTOR_DIRECTION_UP);
+    }
+    else
+    {   
+        vrt_direction(STEPPER_MOTOR_DIRECTION_DOWN);
+        delay_vrt = delay_vrt * (-1);
+    }
+
+    Make_vrt_step(delay_vrt);
+}
+
+
+
+
+
+static THD_WORKING_AREA(waHrz_action_n, 128);
+static THD_FUNCTION(Hrz_action_n, arg)
 {
     arg = arg;
 
     while (true)
     {
-        chThdSleepSeconds(1);
+        if (horizontal_delay_value == 0)
+        {
+            chThdSleepMilliseconds(10);
+        }
+        else
+        {
+            Hrz_action(horizontal_delay_value);
+        }
+        
+    }
+}
+
+static THD_WORKING_AREA(waVrt_action_n, 128);
+static THD_FUNCTION(Vrt_action_n, arg)
+{
+    arg = arg;
+
+    while (true)
+    {
+        if (vertical_delay_value == 0)
+        {
+            chThdSleepMilliseconds(10);
+        }
+        else
+        {
+            Vrt_action(vertical_delay_value);
+        }
     }
 }
 
@@ -185,13 +229,16 @@ int main(void)
     /* HAL (Hardware Abstraction Layer) initialization */
     halInit();
 
-    chThdCreateStatic(waThread, sizeof(waThread), NORMALPRIO, Thread, NULL /* arg is NULL */);
+    chThdCreateStatic(waHrz_action_n, sizeof(waHrz_action_n), NORMALPRIO, Hrz_action_n, NULL /* arg is NULL */);
+
+    chThdCreateStatic(waVrt_action_n, sizeof(waVrt_action_n), NORMALPRIO, Vrt_action_n, NULL /* arg is NULL */);
 
     StepperMotorInit();
-    motor_action_t new_action;
+
 
     SerialCommInit();
-    pkg_serial input_pkg;
+    pkg_serial_t input_pkg;
+
 
     while (true)
     {
@@ -199,16 +246,12 @@ int main(void)
 
         if (result == EOK)
         {
-            chprintf(comm_dr, "New info | idx: %d / dir: %d / val: %d\n",
-                     input_pkg.motor_index,
-                     input_pkg.motor_direction,
-                     input_pkg.value_of_step);
+            chprintf(comm_dr, "New info | hrz_del: %d / vrt_del: %d\n",
+                     input_pkg.hrz_motor_delay,
+                     input_pkg.vrt_motor_delay);
 
-            new_action.motor_index = input_pkg.motor_index;
-            new_action.motor_direction = input_pkg.motor_direction;
-            new_action.value_of_step = input_pkg.value_of_step;
-
-            UpdateStateMotor( &new_action );
+            horizontal_delay_value = input_pkg.hrz_motor_delay;
+            vertical_delay_value = input_pkg.vrt_motor_delay;
         }
 
         chThdSleepMilliseconds(10);

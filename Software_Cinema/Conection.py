@@ -10,29 +10,34 @@ isActive = True
 class SerialTransfer(object):
 
     def __init__(self, num_port, speed=115200):
-        # self.ser = serial.Serial(num_port, speed)
-        pass
+        self.ser = serial.Serial(num_port, speed)
 
-    def Send_pkg(self, num_motor, direction, value_of_step):
-        pkg = bytes([ord('#'), num_motor, direction]) + \
-            value_of_step.to_bytes(2, byteorder='big')
-        # print(value_of_step.to_bytes(2, byteorder='big'))
-        print(pkg)
-        self.ser.write(pkg)
+    # def Send_pkg(self, num_motor, direction, value_of_step):
+    #     pkg = bytes([ord('#'), num_motor, direction]) + \
+    #         value_of_step.to_bytes(2, byteorder='big')
+    #     # print(value_of_step.to_bytes(2, byteorder='big'))
+    #     print(pkg)
+    #     self.ser.write(pkg)
 
     def send_delays(self, hrz_delay, vrt_delay):
+        print(hrz_delay, vrt_delay)
         pkg = bytes([ord('#'), 
-                        np.int8(hrz_delay), 
-                        np.int8(vrt_delay), 
+                        np.uint8(hrz_delay), 
+                        np.uint8(vrt_delay), 
                         np.uint8(hrz_delay * 2 + vrt_delay * 1.5)
                     ])
         print(pkg)
-        # self.ser.write(pkg)
+        self.ser.write(pkg)
 
     def getDebugLine(self):
         return self.ser.readline(100)
 
-def getDelayValue(norm_input):
+def getDelayValueHorizontal(norm_input):
+    # norm_input = [-1;1]
+    sign = lambda x: m.copysign(1, x)
+    return sign(norm_input) * 4
+
+def getDelayValueVertical(norm_input):
     # norm_input = [-1;1]
     sign = lambda x: m.copysign(1, x)
     return sign(norm_input) * 20
@@ -86,19 +91,21 @@ if __name__ == "__main__":
                 print('Debug line: {}'.format(debug_line.rstrip(b'\n\r')))
         thread_debug = Thread(target=debug_thread, args=[MessageForSTM])
         thread_debug.start()
+
+        def send_thread(serial_obj):
+            while isActive:
+                # print('{} / {}'.format(hrz_value_delay, vrt_value_delay))
+                time.sleep(0.05)
+                if serial_obj is not None:
+                    serial_obj.send_delays(hrz_value_delay, vrt_value_delay)
+
+        thread_send = Thread(target=send_thread, args=[MessageForSTM])
+        thread_send.start()
     except:
         serial_disabled = True
         MessageForSTM = None
             
-    def send_thread(serial_obj):
-        while isActive:
-            # print('{} / {}'.format(hrz_value_delay, vrt_value_delay))
-            time.sleep(0.2)
-            if serial_obj is not None:
-                serial_obj.send_delays(hrz_value_delay, vrt_value_delay)
 
-    thread_send = Thread(target=send_thread, args=[MessageForSTM])
-    thread_send.start()
 
     print('Start')
     
@@ -109,6 +116,7 @@ if __name__ == "__main__":
             screen.fill([0, 0, 0])
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame = np.rot90(frame)
+            frame = cv2.flip( frame, 0 )
             frame = pygame.surfarray.make_surface(frame)
             screen.blit(frame, (0, 0))
             pygame.display.update()
@@ -144,13 +152,13 @@ if __name__ == "__main__":
                     if event.type == pygame.JOYAXISMOTION:
                         if event.axis == joy_hrz_axis:
                             if abs(event.value) > 0.02: 
-                                hrz_value_delay = getDelayValue(event.value)
+                                hrz_value_delay = getDelayValueHorizontal(event.value)
                             else:
                                 hrz_value_delay = 0
 
                         elif event.axis == joy_vrt_axis:
                             if abs(event.value) > 0.02:
-                                vrt_value_delay = getDelayValue(-event.value)
+                                vrt_value_delay = getDelayValueVertical(-event.value)
                             else:
                                 vrt_value_delay = 0
                         
